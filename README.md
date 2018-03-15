@@ -28,4 +28,4 @@ optional arguments:
 
 ## Contributors
 
-*   Patrick McDonagh @patrickjmcd - Owner
+*   Patrick McDonagh [@patrickjmcd](https://github.com/patrickjmcd) - Owner
