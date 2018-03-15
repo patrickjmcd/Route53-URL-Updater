@@ -28,4 +28,4 @@ optional arguments:
 
 ## Contributors
 
-*   Patrick McDonagh [@patrickjmcd](@patrickjmcd) - Owner
+*   Patrick McDonagh @patrickjmcd - Owner
