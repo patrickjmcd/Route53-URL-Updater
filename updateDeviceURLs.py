@@ -4,8 +4,8 @@
 import csv
 import json
 import boto3
-import argparse
 from time import sleep
+import click
 
 
 def create_record_set(filename, url_base):
@@ -64,54 +64,81 @@ def check_recordset_in_aws(changeid):
     result = client.get_change(Id=changeid)
     return result['ChangeInfo']['Status']
 
+@click.group()
+def cli():
+    pass
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('configfile', help="The CSV file that holds the gateway configuration.")
-    parser.add_argument('urlbase', help="URL Base for gateways")
-    parser.add_argument('-s', '--send', action='store_true', help="Send the configuration to AWS Route53")
-    parser.add_argument('-o', '--output-file', default=None, help="Output the results to a JSON file.")
-    parser.add_argument('-p', '--print-output', action='store_true', help="Print the output file to the console.")
-    parser.add_argument('-f', '--skip-check', action='store_true', help="Skip checking for changes accepted")
 
-    args = parser.parse_args()
-    send_to_aws = args.send
-    config_file = args.configfile
-    output_file = args.output_file
-    # hosted_zone_id = args.hosted_zone_id
-    print_out = args.print_output
-    url_base = args.urlbase
+@click.command()
+@click.argument("configfile", type=click.Path(exists=True))
+@click.argument("urlbase")
+@click.option("-s", "--send", is_flag=True, help="Send the configuration to AWS Route53")
+@click.option('-o', '--output-file', default=None, help="Output the results to a JSON file.")
+@click.option('-p', '--print-output', is_flag=True, help="Print the output file to the console.")
+@click.option('-f', '--skip-check', is_flag=True, help="Skip checking for changes accepted")
+def update_records(configfile, urlbase, send, output_file, print_output, skip_check):
+    """Update the configuration in route 53."""
+    if urlbase[0] != ".":
+        urlbase = "." + urlbase
 
-    if url_base[0] != ".":
-        url_base = "." + url_base
+    record_set = create_record_set(configfile, urlbase)
 
-    record_set = create_record_set(config_file, url_base)
-
-    hosted_zone_id = find_hostedzoneid(url_base)
+    hosted_zone_id = find_hostedzoneid(urlbase)
 
     if output_file:
         with open(output_file, 'wb') as jsonfile:
             json.dump(record_set, jsonfile, indent=4)
 
-    if print_out:
-        print(json.dumps(record_set, indent=4))
+    if print_output:
+         click.echo(json.dumps(record_set, indent=4))
 
-    if send_to_aws:
+    if send:
         send_result = send_recordset_to_aws(record_set, hosted_zone_id)
         change_id = send_result['ChangeInfo']['Id']
-        print("Changes are currently {}".format(send_result['ChangeInfo']['Status']))
+        click.echo("Changes are currently {}".format(send_result['ChangeInfo']['Status']))
         seconds_to_wait_for_insync = 60
         seconds_waited = 0
         synced = False
         while seconds_waited < seconds_to_wait_for_insync:
             if check_recordset_in_aws(change_id) == 'INSYNC':
                 synced = True
-                print(" BOOM!\nChanges are INSYNC!!!")
+                click.echo(" BOOM!\nChanges are INSYNC!!!")
                 break
             else:
                 print('.', end='', flush=True)
             seconds_waited += 1
             sleep(1)
         if not synced:
-            print(" Yikes!\nCouldn't get INSYNC within {} seconds...".format(seconds_to_wait_for_insync))
+            click.echo(" Yikes!\nCouldn't get INSYNC within {} seconds...".format(seconds_to_wait_for_insync))
         # print(json.dumps(send_result, indent=4, default=str))
+
+@click.command()
+@click.argument("configfile", type=click.Path(exists=True))
+@click.argument("urlbase")
+def show_config(configfile, urlbase):
+    """Read the CSV configuration file and parse into an object."""
+    if urlbase[0] != ".":
+        urlbase = "." + urlbase
+
+    with open(configfile, "r") as cfg:
+        reader = csv.DictReader(cfg)
+        companies = {}
+        max_length = 0
+        for c in reader:
+            if not c["Company"] in companies.keys():
+                companies[c["Company"]] = []
+            companies[c["Company"]].append({"location": c["Gateway"], "URL": c["url"]})
+            if len(c["Gateway"]) > max_length:
+                max_length = len(c["Gateway"])
+        for comp in companies.keys():
+            click.echo("== {}".format(comp))
+            for device in companies[comp]:
+                spaces = " " * (max_length - len(device["location"]))
+                click.echo("  \u21B3 {}{} \u21B9  {}{}".format(device["location"], spaces, device["URL"], urlbase))
+            click.echo()
+
+cli.add_command(update_records)
+cli.add_command(show_config)
+
+if __name__ == '__main__':
+    cli()
